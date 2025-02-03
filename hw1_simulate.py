@@ -82,11 +82,24 @@ def greedy_algorithm(P: dict, D: dict, patient_status: dict, donor_status: dict,
   ### Question 1.1(b).i: Code the greedy algorithm and append matches to the list 'matches'
   matches = []
 
+  for patient in patients:
+    p_blood = P[patient]
+    for donor in donors:
+      d_blood = D[donor]
+      if can_receive(p_blood, d_blood) and not patient_status[patient] and not donor_status[donor]:
+        matches.append((patient, donor))
+        patient_status[patient] = True
+        donor_status[donor] = True
+        break
+      
+
   return matches
 
 
 # %%
 ## Integer linear programming approach for transplants
+import sys
+
 def mip(P: dict, D: dict, patient_status: dict, donor_status: dict, compatible_blood_type: dict = compatible_blood_type):
   """Match donors to patients based on optimization model
 
@@ -111,20 +124,27 @@ def mip(P: dict, D: dict, patient_status: dict, donor_status: dict, compatible_b
   sys.stdout.flush()
 
   # Variables: x_{i,j} binary representing whether patient i to donor j
+  x = {}
+  for patient in patients:
+    for donor in donors:
+      if can_receive(P[patient], D[donor]):
+        x[patient, donor] = model.addVar(vtype=GRB.BINARY, name=f"x_{patient}_{donor}")
 
   # Constraint: Each patient can be matched to at most one (compatible) donor
-
+  for patient in patients:
+    model.addConstr(quicksum(x[patient, donor] for donor in donors if (patient, donor) in x) <= 1, name=f"x_{patient}_{donor}")
   # Constraint: Each donor can be matched to at most one (compatible) patient
-
+  for donor in donors:
+    model.addConstr(quicksum(x[patient, donor] for patient in patient if (patient, donor) in x) <= 1, name=f"x_{patient}_{donor}")
   # Objective: Maximize number of transplants
-
+  model.setObjective(quicksum(x.values()), GRB.MAXIMIZE)
   # Optimize
   model.params.outputflag = 0
   model.optimize()
   model.params.LogToConsole = 0
 
   # Set matches based on solution to model
-  matches = []
+  matches = [(patient, donor) for (patient, donor) in x if x[patient,donor].x > 0.1]
 
   return matches
 
@@ -314,21 +334,31 @@ def simulate(
         TIS[i] += 1
 
   # Report statistics
-  avg_tis = 0 # TODO you need to calculate this value!
+  avg_tis = 0
+  for key in TIS:
+    avg_tis += TIS[key]
+  avg_tis = avg_tis/len(TIS)
+    
   TIS_BT = {key: 0 for key in compatible_blood_type.keys()}
   for i in patients.keys():
     TIS_BT[patients[i]] += TIS[i] / num_patients_by_type[patients[i]]
+
+
+  avg_num_patients_by_type_per_period = {}
+  for key in num_patients_by_type:
+    avg_num_patients_by_type_per_period[key] = num_patients_by_type[key]/num_periods
+
 
   print("=== Summary Statistics ===")
   print('Number of periods:', num_periods)
   print('Total # patients matched: {:d}/{:d}'.format(sum(num_matched_by_type.values()), num_patients))
   print('Number of patients by type:', num_patients_by_type)
   print('Number of patients matched:', num_matched_by_type)
-  print('1.1(b)iii: Average number of patients (per blood type) matched per period:', "TODO for homework")
-  print('1.1(b)iv: Average time in system:', "TODO for homework")
+  print('1.1(b)iii: Average number of patients (per blood type) matched per period:', avg_num_patients_by_type_per_period)
+  print('1.1(b)iv: Average time in system:', avg_tis)
   print('Average time in system (by type, weighed by num_patients):', {key : sum(TIS[i] for i in patients if patients[i] == key) / num_patients for key in compatible_blood_type.keys()})
   print('1.1(b)iv: Average time in system (by type, weighed by num_patients_by_type):', TIS_BT)
-  print('1.1(b)v: Average proportion of patients matched per period by type:', "TODO for extra credit")
+  print('1.1(b)v: Average proportion of patients matched per period by type:', " for extra credit")
 
   return num_matched_by_type, num_patients
 
@@ -403,6 +433,8 @@ if __name__ == "__main__":
   import argparse
   parser = argparse.ArgumentParser(description='Run the blood donation simulation')
   parser.add_argument('--rs_seed', type=int, default=628, help='Random seed for simulation')
-  args = parser.parse_args()
+  args, unknown = parser.parse_known_args()
   main(args.rs_seed)
 
+
+# %%
